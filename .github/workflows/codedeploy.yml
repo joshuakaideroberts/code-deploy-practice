@@ -31,4 +31,43 @@ jobs:
             --arg commit "$GITHUB_SHA" \
             '{revisionType: "GitHub", gitHubLocation: {repository: $repo, commitId: $commit}}')
           echo "$REVISION_JSON" > revision.json
-          aws deploy create-deployment --application-name "$APPLICATION_NAME" --deployment-group-name "$DEPLOYMENT_GROUP" --revision file://revision.json
+          # Create deployment and capture the deploymentId
+          CREATE_OUT=$(aws deploy create-deployment --application-name "$APPLICATION_NAME" --deployment-group-name "$DEPLOYMENT_GROUP" --revision file://revision.json)
+          DEPLOYMENT_ID=$(echo "$CREATE_OUT" | jq -r '.deploymentId')
+          echo "Created deployment: $DEPLOYMENT_ID"
+          echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
+
+      - name: Wait for deployment to finish
+        env:
+          DEPLOYMENT_ID: ${{ env.DEPLOYMENT_ID }}
+        run: |
+          set -euo pipefail
+          MAX_SECONDS=$((10 * 60)) # 10 minutes
+          SLEEP=5
+          ELAPSED=0
+          while true; do
+            OUT=$(aws deploy get-deployment --deployment-id "$DEPLOYMENT_ID")
+            STATUS=$(echo "$OUT" | jq -r '.deploymentInfo.status')
+            echo "Deployment status: $STATUS"
+            if [[ "$STATUS" == "Succeeded" ]]; then
+              echo "Deployment succeeded"
+              exit 0
+            fi
+            if [[ "$STATUS" == "Failed" ]] || [[ "$STATUS" == "Stopped" ]]; then
+              echo "Deployment failed or stopped"
+              echo "$OUT"
+              exit 1
+            fi
+            if [[ $ELAPSED -ge $MAX_SECONDS ]]; then
+              echo "Timed out waiting for deployment (waited $ELAPSED seconds)"
+              echo "$OUT"
+              exit 1
+            fi
+            sleep $SLEEP
+            ELAPSED=$((ELAPSED + SLEEP))
+            # simple backoff - increase sleep up to 30s
+            if [[ $SLEEP -lt 30 ]]; then
+              SLEEP=$((SLEEP * 2))
+              if [[ $SLEEP -gt 30 ]]; then SLEEP=30; fi
+            fi
+          done
