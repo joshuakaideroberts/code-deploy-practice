@@ -1,38 +1,193 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
   <meta charset="utf-8">
-  <title>Sample Deployment</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CodeDeploy Demo — Interactive</title>
   <style>
+    :root {
+      --bg: #0b3d0b;
+      --accent: #ffd54d;
+      --muted: #e0f2e9
+    }
+
     body {
-      color: #ffffff;
-      background-color: #00FF00;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
+      background: linear-gradient(180deg, var(--bg), #145214);
+      color: var(--muted);
+      font-family: Inter, Arial, sans-serif;
+      margin: 0;
+      padding: 2rem
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 1.5rem;
+      border-radius: 12px
     }
 
     h1 {
-      font-size: 500%;
-      font-weight: normal;
-      margin-bottom: 0;
+      margin: 0;
+      font-size: 2.4rem;
+      color: var(--accent)
     }
 
-    h2 {
-      font-size: 200%;
-      font-weight: normal;
-      margin-bottom: 0;
+    p.lead {
+      margin-top: 0.25rem;
+      color: #cfead6
+    }
+
+    .row {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1rem;
+      flex-wrap: wrap
+    }
+
+    .card {
+      background: rgba(0, 0, 0, 0.15);
+      padding: 1rem;
+      border-radius: 8px;
+      flex: 1;
+      min-width: 240px
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      color: #fff
+    }
+
+    .facts {
+      font-size: 0.95rem
+    }
+
+    footer {
+      margin-top: 1.25rem;
+      font-size: 0.85rem;
+      color: #bcd9c9
+    }
+
+    a {
+      color: var(--accent)
     }
   </style>
 </head>
 
 <body>
-  <div align="center">
-    <h1>Congratulations</h1>
-    <h2>This application was deployed using AWS CodeDeploy.</h2>
-    <p>For next steps, read the <a href="http://aws.amazon.com/documentation/codedeploy">AWS CodeDeploy
-        Documentation</a>.</p>
+  <div class="container">
+    <header>
+      <h1>CodeDeploy Demo — Interactive</h1>
+      <p class="lead">A small, living page to prove deployments. Shows live time, deployment metadata, and fun facts.
+      </p>
+    </header>
+
+    <div class="row">
+      <div class="card">
+        <h3>Live clock</h3>
+        <div id="clock" class="mono" aria-live="polite">--:--:--</div>
+        <div id="tz" style="margin-top:.5rem;color:#cfead6">UTC</div>
+      </div>
+
+      <div class="card">
+        <h3>Deployment info</h3>
+        <div id="deploy-info">
+          <div>Commit: <span id="commit" class="mono">(unknown)</span></div>
+          <div>Repository: <span id="repo" class="mono">(unknown)</span></div>
+          <div id="commit-link" style="margin-top:.5rem"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card facts">
+        <h3>Deployment facts</h3>
+        <div id="fact">Loading fact...</div>
+      </div>
+
+      <div class="card">
+        <h3>Try this</h3>
+        <ol>
+          <li>Push a commit to <code>main</code>. The deployment will run.</li>
+          <li>See this page update with the commit SHA and link (if public repo).</li>
+        </ol>
+      </div>
+    </div>
+
+    <footer>
+      Served from this simple static site. AppSpec copies this file to <code>/var/www/html/index.html</code> on the
+      target instances.
+    </footer>
   </div>
+
+  <script>
+    // live clock
+    function updateClock() {
+      const now = new Date();
+      const t = now.toLocaleTimeString();
+      document.getElementById('clock').textContent = t;
+      const tzMatch = now.toString().match(/\(([A-Za-z\s]+)\)$/);
+      document.getElementById('tz').textContent = tzMatch ? tzMatch[1] : 'Local';
+    }
+    setInterval(updateClock, 1000); updateClock();
+
+    // rotating facts
+    const facts = [
+      'This site is deployed via AWS CodeDeploy.',
+      'You can configure lifecycle hooks in appspec.yml.',
+      'GitHub Actions can trigger CodeDeploy directly using GitHub revisions.',
+      'This demo is intentionally minimal — add build steps for compiled apps.'
+    ];
+    let fi = 0;
+    function rotateFact() { document.getElementById('fact').textContent = facts[fi]; fi = (fi + 1) % facts.length; }
+    rotateFact(); setInterval(rotateFact, 5000);
+
+    // Try to fetch deploy-info.json (created by the workflow and included in the artifact)
+    fetch('/deploy-info.json').then(r => {
+      if (!r.ok) throw new Error('no');
+      return r.json();
+    }).then(info => {
+      if (info.commit) document.getElementById('commit').textContent = info.commit;
+      if (info.repository) document.getElementById('repo').textContent = info.repository;
+      if (info.commit && info.repository) {
+        const a = document.createElement('a');
+        a.href = `https://github.com/${info.repository}/commit/${info.commit}`;
+        a.textContent = `View commit ${info.commit.substring(0, 7)}`;
+        a.target = '_blank';
+        document.getElementById('commit-link').appendChild(a);
+      }
+    }).catch(() => {
+      // fallback to window variables if workflow didn't include deploy-info.json
+      const commit = window.DEPLOY_COMMIT || null;
+      const repo = window.DEPLOY_REPO || null;
+      if (commit) document.getElementById('commit').textContent = commit;
+      if (repo) document.getElementById('repo').textContent = repo;
+    });
+  </script>
+</body>
+
+</html>
+if (!r.ok) throw new Error('no');
+return r.json();
+}).then(info => {
+if (info.commit) document.getElementById('commit').textContent = info.commit;
+if (info.repository) document.getElementById('repo').textContent = info.repository;
+if (info.commit && info.repository) {
+const a = document.createElement('a');
+a.href = `https://github.com/${info.repository}/commit/${info.commit}`;
+a.textContent = `View commit ${info.commit.substring(0,7)}`;
+a.target = '_blank';
+document.getElementById('commit-link').appendChild(a);
+}
+}).catch(()=>{
+// fallback to window variables if workflow didn't include deploy-info.json
+const commit = window.DEPLOY_COMMIT || null;
+const repo = window.DEPLOY_REPO || null;
+if(commit) document.getElementById('commit').textContent = commit;
+if(repo) document.getElementById('repo').textContent = repo;
+});
+</script>
 </body>
 
 </html>

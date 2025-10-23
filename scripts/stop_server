@@ -1,6 +1,5 @@
 #!/bin/bash
-isExistApp = `pgrep httpd`
-if [[ -n  $isExistApp ]]; then
-    service httpd stop        
+# check if httpd is running and stop it
+if pgrep httpd >/dev/null 2>&1; then
+    service httpd stop
 fi
-
