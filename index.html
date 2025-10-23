@@ -168,26 +168,3 @@
 </body>
 
 </html>
-if (!r.ok) throw new Error('no');
-return r.json();
-}).then(info => {
-if (info.commit) document.getElementById('commit').textContent = info.commit;
-if (info.repository) document.getElementById('repo').textContent = info.repository;
-if (info.commit && info.repository) {
-const a = document.createElement('a');
-a.href = `https://github.com/${info.repository}/commit/${info.commit}`;
-a.textContent = `View commit ${info.commit.substring(0,7)}`;
-a.target = '_blank';
-document.getElementById('commit-link').appendChild(a);
-}
-}).catch(()=>{
-// fallback to window variables if workflow didn't include deploy-info.json
-const commit = window.DEPLOY_COMMIT || null;
-const repo = window.DEPLOY_REPO || null;
-if(commit) document.getElementById('commit').textContent = commit;
-if(repo) document.getElementById('repo').textContent = repo;
-});
-</script>
-</body>
-
-</html>
