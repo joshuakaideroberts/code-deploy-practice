@@ -8,7 +8,7 @@ jobs:
   deploy:
     name: Package and deploy
     runs-on: ubuntu-latest
-    environment: test
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,12 +18,12 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Register GitHub revision with CodeDeploy
         env:
-          APPLICATION_NAME: ${{ secrets.CODEDEPLOY_APPLICATION }}
-          DEPLOYMENT_GROUP: ${{ secrets.CODEDEPLOY_DEPLOYMENT_GROUP }}
+          APPLICATION_NAME: ${{ vars.CODEDEPLOY_APPLICATION }}
+          DEPLOYMENT_GROUP: ${{ vars.CODEDEPLOY_DEPLOYMENT_GROUP }}
         run: |
           # Build a revision JSON pointing to the current repo and commit
           REVISION_JSON=$(jq -n \
