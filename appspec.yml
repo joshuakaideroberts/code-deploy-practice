@@ -7,8 +7,7 @@ os: linux               # target OS for the deployment (linux here)
 files:                  # files to copy from the revision bundle to the instance
   - source: /index.html         # path inside the revision bundle (root-relative)
     destination: /var/www/html/ # absolute path on the instance where the file will be copied
-  - source: /deploy-info.json   # include the injected metadata file in the bundle
-    destination: /var/www/html/ # deploy it to the web root so the app can read it
+
 
 hooks:                  # lifecycle hooks — run scripts at specific deployment phases
   BeforeInstall:        # runs before the application files are copied (used for prep)
