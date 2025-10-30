@@ -1,116 +1,100 @@
-name: Deploy to AWS CodeDeploy
+name: Deploy to AWS CodeDeploy (no external actions)
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   deploy:
-    name: Package and deploy
     runs-on: ubuntu-latest
-    environment: dev
+
+    # Use only SECRETS (not vars) for simplicity
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      CODEDEPLOY_APPLICATION: ${{ secrets.CODEDEPLOY_APPLICATION }}
+      CODEDEPLOY_DEPLOYMENT_GROUP: ${{ secrets.CODEDEPLOY_DEPLOYMENT_GROUP }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Create deploy metadata
+      - name: Checkout repository (inline)
         run: |
-          cat > deploy-info.json <<JSON
-          {
-            "repository": "${GITHUB_REPOSITORY}",
-            "commit": "${GITHUB_SHA}"
-          }
-          JSON
+          set -euo pipefail
+          git init .
+          git config --global init.defaultBranch main
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout --force FETCH_HEAD
+          git log -1 --pretty=oneline
+
+     
+      - name: Configure AWS CLI (install if missing, otherwise use existing)
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${{ secrets.AWS_ACCESS_KEY_ID }}"
+          echo "::add-mask::${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
+          export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+          export AWS_REGION="${AWS_REGION:-us-west-2}"
+          export PATH="/usr/local/bin:$PATH"
+
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl jq zip
+
+          if command -v aws >/dev/null 2>&1; then
+            aws --version
+          else
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+            aws --version
+          fi
+
+          # sanity check creds
+          aws sts get-caller-identity
+
+      - name: Validate AWS resources
+        run: |
+          set -euo pipefail
+          aws deploy get-application --application-name "$CODEDEPLOY_APPLICATION" >/dev/null
+          aws deploy get-deployment-group \
+            --application-name "$CODEDEPLOY_APPLICATION" \
+            --deployment-group-name "$CODEDEPLOY_DEPLOYMENT_GROUP" >/dev/null
+          aws s3 ls "s3://$S3_BUCKET" >/dev/null
 
       - name: Package artifact
         run: |
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          ARTIFACT_NAME=app-${TIMESTAMP}.zip
-          # Exclude VCS and workflow files
-          zip -r "$ARTIFACT_NAME" . -x ".git/*" "./.github/*"
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+          set -euo pipefail
+          ZIP_NAME="app-$(date +%s).zip"
+          # don't ship workflows themselves
+          zip -qr "$ZIP_NAME" . -x ".git/*" ".github/*"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          ls -lh "$ZIP_NAME"
 
-      - name: Upload artifact to S3
-        env:
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
-          S3_PREFIX: ${{ vars.S3_PREFIX }}
-        run: |
-          if [ -z "$S3_BUCKET" ]; then
-            echo "S3_BUCKET secret not set; aborting upload" >&2
-            exit 1
-          fi
-          # Normalize optional prefix (strip leading/trailing slashes); build S3 key
-          if [ -n "$S3_PREFIX" ]; then
-            S3_PREFIX="${S3_PREFIX#/}"
-            S3_PREFIX="${S3_PREFIX%/}"
-            S3_KEY="${S3_PREFIX}/${ARTIFACT_NAME}"
-          else
-            S3_KEY="${ARTIFACT_NAME}"
-          fi
-          echo "Using S3 key: $S3_KEY"
-          aws s3 cp "$ARTIFACT_NAME" "s3://$S3_BUCKET/$S3_KEY"
-          echo "S3_KEY=$S3_KEY" >> $GITHUB_ENV
-
-      - name: Register S3 revision with CodeDeploy
-        env:
-          APPLICATION_NAME: ${{ vars.CODEDEPLOY_APPLICATION }}
-          DEPLOYMENT_GROUP: ${{ vars.CODEDEPLOY_DEPLOYMENT_GROUP }}
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
-        run: |
-          cat > revision.json <<JSON
-          {
-            "revisionType": "S3",
-            "s3Location": {
-              "bucket": "${S3_BUCKET}",
-              "key": "${S3_KEY}",
-              "bundleType": "zip"
-            }
-          }
-          JSON
-          DEPLOYMENT_ID=$(aws deploy create-deployment \
-            --application-name "$APPLICATION_NAME" \
-            --deployment-group-name "$DEPLOYMENT_GROUP" \
-            --revision file://revision.json \
-            --query deploymentId --output text)
-          echo "Created deployment: $DEPLOYMENT_ID"
-          echo "DEPLOYMENT_ID=$DEPLOYMENT_ID" >> $GITHUB_ENV
-
-      - name: Wait for deployment to finish
-        env:
-          DEPLOYMENT_ID: ${{ env.DEPLOYMENT_ID }}
+      - name: Upload to S3
         run: |
           set -euo pipefail
-          MAX_SECONDS=$((10 * 60)) # 10 minutes
-          SLEEP=5
-          ELAPSED=0
-          while true; do
-            STATUS=$(aws deploy get-deployment --deployment-id "$DEPLOYMENT_ID" --query 'deploymentInfo.status' --output text)
-            echo "Deployment status: $STATUS"
-            if [[ "$STATUS" == "Succeeded" ]]; then
-              echo "Deployment succeeded"
-              exit 0
-            fi
-            if [[ "$STATUS" == "Failed" ]] || [[ "$STATUS" == "Stopped" ]]; then
-              echo "Deployment failed or stopped"
-              exit 1
-            fi
-            if [[ $ELAPSED -ge $MAX_SECONDS ]]; then
-              echo "Timed out waiting for deployment (waited $ELAPSED seconds)"
-              exit 1
-            fi
-            sleep $SLEEP
-            ELAPSED=$((ELAPSED + SLEEP))
-            # simple backoff - increase sleep up to 30s
-            if [[ $SLEEP -lt 30 ]]; then
-              SLEEP=$((SLEEP * 2))
-              if [[ $SLEEP -gt 30 ]]; then SLEEP=30; fi
-            fi
-          done
+          aws s3 cp "$ZIP_NAME" "s3://${S3_BUCKET}/${ZIP_NAME}"
+          aws s3 ls "s3://${S3_BUCKET}/${ZIP_NAME}"
+
+      - name: Create CodeDeploy deployment
+        id: deploy
+        run: |
+          set -euo pipefail
+          djson=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_APPLICATION" \
+            --deployment-group-name "$CODEDEPLOY_DEPLOYMENT_GROUP" \
+            --revision "revisionType=S3Location,s3Location={bucket=${S3_BUCKET},key=${ZIP_NAME},bundleType=zip}" \
+            --region "$AWS_REGION" \
+            --output json)
+          echo "$djson"
+          did=$(echo "$djson" | jq -r .deploymentId)
+          test -n "$did"
+          echo "DEPLOYMENT_ID=$did" >> $GITHUB_ENV
+
+      - name: Wait for deployment
+        run: |
+          set -euo pipefail
+          aws deploy wait deployment-successful --deployment-id "$DEPLOYMENT_ID"
+          aws deploy get-deployment --deployment-id "$DEPLOYMENT_ID" --output table
