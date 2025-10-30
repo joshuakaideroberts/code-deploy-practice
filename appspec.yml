@@ -1,6 +1,3 @@
-# appspec.yml for AWS CodeDeploy
-# Comments explain each key/pair below.
-
 version: 0.0
 os: linux
 file_exists_behavior: OVERWRITE
