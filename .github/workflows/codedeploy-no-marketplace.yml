@@ -1,0 +1,56 @@
+name: CodeDeploy (no external actions)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      CODEDEPLOY_APPLICATION: ${{ vars.CODEDEPLOY_APPLICATION }}
+      CODEDEPLOY_DEPLOYMENT_GROUP: ${{ vars.CODEDEPLOY_DEPLOYMENT_GROUP }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+
+    steps:
+      - name: Checkout repository
+        run: |
+          git init .
+          git config --global init.defaultBranch main
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout --force FETCH_HEAD
+
+      - name: Configure AWS credentials inline
+        run: |
+          echo "::add-mask::${{ secrets.AWS_ACCESS_KEY_ID }}"
+          echo "::add-mask::${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
+          export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
+          export AWS_REGION='${{ vars.AWS_REGION }}'
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl jq zip
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install
+          aws --version
+          aws sts get-caller-identity
+
+      - name: Package application
+        run: |
+          zip -qr app.zip . -x ".git/*" ".github/*"
+          echo "ZIP_NAME=app.zip" >> $GITHUB_ENV
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp "$ZIP_NAME" "s3://${S3_BUCKET}/${ZIP_NAME}"
+
+      - name: Deploy to CodeDeploy
+        run: |
+          aws deploy create-deployment \
+            --application-name "${CODEDEPLOY_APPLICATION}" \
+            --deployment-group-name "${CODEDEPLOY_DEPLOYMENT_GROUP}" \
+            --s3-location "bucket=${S3_BUCKET},key=${ZIP_NAME},bundleType=zip" \
+            --region "${AWS_REGION}"
