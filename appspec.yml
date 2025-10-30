@@ -3,6 +3,7 @@
 
 version: 0.0            # appspec file version (CodeDeploy uses this to parse)
 os: linux               # target OS for the deployment (linux here)
+file_exists_behavior: OVERWRITE
 
 files:                  # files to copy from the revision bundle to the instance
   - source: /index.html         # path inside the revision bundle (root-relative)
