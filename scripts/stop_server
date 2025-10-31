@@ -1,5 +1,21 @@
 #!/bin/bash
-# check if httpd is running and stop it
-if pgrep httpd >/dev/null 2>&1; then
-    service httpd stop
+# Be tolerant during stop; don't fail the whole deployment for harmless cases.
+set -u
+
+log(){ echo "[stop_server] $*"; }
+
+stopped_any=0
+for svc in httpd apache2; do
+  if systemctl list-unit-files | grep -q "^${svc}\.service"; then
+    log "Stopping ${svc} if running..."
+    sudo systemctl stop "$svc" || true
+    stopped_any=1
+  fi
+done
+
+if [ "$stopped_any" -eq 0 ]; then
+  log "No httpd/apache2 service found; nothing to stop."
 fi
+
+# Always succeed
+exit 0
