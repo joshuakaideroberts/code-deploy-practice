@@ -1,0 +1,21 @@
+{
+    "Role": {
+        "Path": "/",
+        "RoleName": "CodeDeployDemo-EC2-Role",
+        "RoleId": "AROA37CQNWPLCZCU7YUDQ",
+        "Arn": "arn:aws:iam::822654907350:role/CodeDeployDemo-EC2-Role",
+        "CreateDate": "2025-10-31T18:11:39+00:00",
+        "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                }
+            ]
+        }
+    }
+}
