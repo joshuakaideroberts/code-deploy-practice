@@ -55,21 +55,22 @@ jobs:
             aws --version
           fi
 
-          echo "== Persist AWS credentials to files =="
+          echo "== Persist AWS credentials to files (printf-safe) =="
           mkdir -p "${AWS_DIR}"
           umask 077
-          cat > "${AWS_SHARED_CREDENTIALS_FILE}" <<'EOF'
-[default]
-aws_access_key_id=${AWS_ACCESS_KEY_ID}
-aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
-EOF
-          cat > "${AWS_CONFIG_FILE}" <<'EOF'
-[default]
-region=${AWS_REGION}
-output=json
-EOF
+          # credentials
+          printf '%s\n' \
+            '[default]' \
+            "aws_access_key_id=${AWS_ACCESS_KEY_ID}" \
+            "aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" \
+            > "${AWS_SHARED_CREDENTIALS_FILE}"
+          # config
+          printf '%s\n' \
+            '[default]' \
+            "region=${AWS_REGION}" \
+            'output=json' \
+            > "${AWS_CONFIG_FILE}"
           ls -l "${AWS_DIR}"
-          # Prove creds work from this same step
           aws sts get-caller-identity
 
           echo "== Validate AWS resources =="
