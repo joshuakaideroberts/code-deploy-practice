@@ -9,48 +9,44 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
+      # 🔐 Secrets & config (must exist on THIS repo)
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
       CODEDEPLOY_APPLICATION: ${{ secrets.CODEDEPLOY_APPLICATION }}
       CODEDEPLOY_DEPLOYMENT_GROUP: ${{ secrets.CODEDEPLOY_DEPLOYMENT_GROUP }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
 
-    steps:
-      - name: Checkout repository (inline)
-        run: |
-          set -euo pipefail
-          git init .
-          git config --global init.defaultBranch main
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          git fetch --depth=1 origin ${{ github.sha }}
-          git checkout --force FETCH_HEAD
-          git log -1 --pretty=oneline
+      # Shared credentials files (kept in workspace)
+      AWS_DIR: ${{ github.workspace }}/.aws
+      AWS_SHARED_CREDENTIALS_FILE: ${{ github.workspace }}/.aws/credentials
+      AWS_CONFIG_FILE: ${{ github.workspace }}/.aws/config
 
-      - name: Configure AWS CLI (install if missing; verify secrets)
+    steps:
+      - name: Checkout, Configure, Package, Upload, Deploy (all-in-one)
         run: |
           set -euxo pipefail
 
-          # Required secrets present?
-          test -n "${{ secrets.AWS_ACCESS_KEY_ID }}" || (echo "Missing secret AWS_ACCESS_KEY_ID" && exit 2)
-          test -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || (echo "Missing secret AWS_SECRET_ACCESS_KEY" && exit 2)
-          test -n "${{ secrets.AWS_REGION }}" || (echo "Missing secret AWS_REGION" && exit 2)
-          test -n "${{ secrets.CODEDEPLOY_APPLICATION }}" || (echo "Missing secret CODEDEPLOY_APPLICATION" && exit 2)
-          test -n "${{ secrets.CODEDEPLOY_DEPLOYMENT_GROUP }}" || (echo "Missing secret CODEDEPLOY_DEPLOYMENT_GROUP" && exit 2)
-          test -n "${{ secrets.S3_BUCKET }}" || (echo "Missing secret S3_BUCKET" && exit 2)
+          echo "== Preflight: verify required env =="
+          test -n "${AWS_ACCESS_KEY_ID}"
+          test -n "${AWS_SECRET_ACCESS_KEY}"
+          test -n "${AWS_REGION}"
+          test -n "${CODEDEPLOY_APPLICATION}"
+          test -n "${CODEDEPLOY_DEPLOYMENT_GROUP}"
+          test -n "${S3_BUCKET}"
 
-          # Export creds/region for AWS CLI
-          echo "::add-mask::${{ secrets.AWS_ACCESS_KEY_ID }}"
-          echo "::add-mask::${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-          export AWS_ACCESS_KEY_ID='${{ secrets.AWS_ACCESS_KEY_ID }}'
-          export AWS_SECRET_ACCESS_KEY='${{ secrets.AWS_SECRET_ACCESS_KEY }}'
-          export AWS_REGION='${{ secrets.AWS_REGION }}'
-          export AWS_DEFAULT_REGION="$AWS_REGION"
-          export PATH="/usr/local/bin:$PATH"
+          echo "== Checkout repository without marketplace actions =="
+          git init .
+          git config --global init.defaultBranch main
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${{ github.sha }}"
+          git checkout --force FETCH_HEAD
+          git log -1 --pretty=oneline
 
-          # Tools
+          echo "== Install CLI tools =="
           sudo apt-get update -y
           sudo apt-get install -y unzip curl jq zip
-
-          # AWS CLI
           if command -v aws >/dev/null 2>&1; then
             aws --version
           else
@@ -60,49 +56,50 @@ jobs:
             aws --version
           fi
 
-          # Sanity: should print account/ARN
+          echo "== Persist AWS credentials to files (so every command finds them) =="
+          mkdir -p "${AWS_DIR}"
+          umask 077
+          cat > "${AWS_SHARED_CREDENTIALS_FILE}" <<EOF
+[default]
+aws_access_key_id=${AWS_ACCESS_KEY_ID}
+aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
+EOF
+          cat > "${AWS_CONFIG_FILE}" <<EOF
+[default]
+region=${AWS_REGION}
+output=json
+EOF
+          ls -l "${AWS_DIR}"
           aws sts get-caller-identity
 
-      - name: Validate AWS resources
-        run: |
-          set -euo pipefail
-          aws deploy get-application --application-name "$CODEDEPLOY_APPLICATION" >/dev/null
+          echo "== Validate AWS resources =="
+          aws deploy get-application --application-name "${CODEDEPLOY_APPLICATION}" >/dev/null
           aws deploy get-deployment-group \
-            --application-name "$CODEDEPLOY_APPLICATION" \
-            --deployment-group-name "$CODEDEPLOY_DEPLOYMENT_GROUP" >/dev/null
-          aws s3 ls "s3://$S3_BUCKET" >/dev/null
+            --application-name "${CODEDEPLOY_APPLICATION}" \
+            --deployment-group-name "${CODEDEPLOY_DEPLOYMENT_GROUP}" >/dev/null
+          aws s3 ls "s3://${S3_BUCKET}" >/dev/null
 
-      - name: Package artifact
-        run: |
-          set -euo pipefail
+          echo "== Package artifact =="
           ZIP_NAME="app-$(date +%s).zip"
+          # don't include workflows in the bundle
           zip -qr "$ZIP_NAME" . -x ".git/*" ".github/*"
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           ls -lh "$ZIP_NAME"
 
-      - name: Upload to S3
-        run: |
-          set -euo pipefail
+          echo "== Upload to S3 =="
           aws s3 cp "$ZIP_NAME" "s3://${S3_BUCKET}/${ZIP_NAME}"
           aws s3 ls "s3://${S3_BUCKET}/${ZIP_NAME}"
 
-      - name: Create CodeDeploy deployment
-        id: deploy
-        run: |
-          set -euo pipefail
+          echo "== Create CodeDeploy deployment =="
           djson=$(aws deploy create-deployment \
-            --application-name "$CODEDEPLOY_APPLICATION" \
-            --deployment-group-name "$CODEDEPLOY_DEPLOYMENT_GROUP" \
+            --application-name "${CODEDEPLOY_APPLICATION}" \
+            --deployment-group-name "${CODEDEPLOY_DEPLOYMENT_GROUP}" \
             --revision "revisionType=S3Location,s3Location={bucket=${S3_BUCKET},key=${ZIP_NAME},bundleType=zip}" \
-            --region "$AWS_REGION" \
+            --region "${AWS_REGION}" \
             --output json)
           echo "$djson"
           did=$(echo "$djson" | jq -r .deploymentId)
           test -n "$did"
-          echo "DEPLOYMENT_ID=$did" >> $GITHUB_ENV
 
-      - name: Wait for deployment
-        run: |
-          set -euo pipefail
-          aws deploy wait deployment-successful --deployment-id "$DEPLOYMENT_ID"
-          aws deploy get-deployment --deployment-id "$DEPLOYMENT_ID" --output table
+          echo "== Wait for deployment to succeed =="
+          aws deploy wait deployment-successful --deployment-id "$did"
+          aws deploy get-deployment --deployment-id "$did" --output table
