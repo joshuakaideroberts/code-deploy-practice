@@ -9,7 +9,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      # 🔐 Secrets & config (must exist on THIS repo)
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -18,13 +17,13 @@ jobs:
       CODEDEPLOY_DEPLOYMENT_GROUP: ${{ secrets.CODEDEPLOY_DEPLOYMENT_GROUP }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
 
-      # Shared credentials files (kept in workspace)
       AWS_DIR: ${{ github.workspace }}/.aws
       AWS_SHARED_CREDENTIALS_FILE: ${{ github.workspace }}/.aws/credentials
       AWS_CONFIG_FILE: ${{ github.workspace }}/.aws/config
 
     steps:
       - name: Checkout, Configure, Package, Upload, Deploy (all-in-one)
+        shell: bash
         run: |
           set -euxo pipefail
 
@@ -56,20 +55,21 @@ jobs:
             aws --version
           fi
 
-          echo "== Persist AWS credentials to files (so every command finds them) =="
+          echo "== Persist AWS credentials to files =="
           mkdir -p "${AWS_DIR}"
           umask 077
-          cat > "${AWS_SHARED_CREDENTIALS_FILE}" <<EOF
+          cat > "${AWS_SHARED_CREDENTIALS_FILE}" <<'EOF'
 [default]
 aws_access_key_id=${AWS_ACCESS_KEY_ID}
 aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
 EOF
-          cat > "${AWS_CONFIG_FILE}" <<EOF
+          cat > "${AWS_CONFIG_FILE}" <<'EOF'
 [default]
 region=${AWS_REGION}
 output=json
 EOF
           ls -l "${AWS_DIR}"
+          # Prove creds work from this same step
           aws sts get-caller-identity
 
           echo "== Validate AWS resources =="
@@ -81,7 +81,6 @@ EOF
 
           echo "== Package artifact =="
           ZIP_NAME="app-$(date +%s).zip"
-          # don't include workflows in the bundle
           zip -qr "$ZIP_NAME" . -x ".git/*" ".github/*"
           ls -lh "$ZIP_NAME"
 
