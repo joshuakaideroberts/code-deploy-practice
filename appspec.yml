@@ -5,6 +5,8 @@ file_exists_behavior: OVERWRITE
 files:
   - source: /index.html
     destination: /var/www/html/
+  - source: /deploy-info.json
+    destination: /var/www/html/
 
 hooks:
   ApplicationStop:
