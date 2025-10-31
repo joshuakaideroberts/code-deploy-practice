@@ -1,24 +1,22 @@
 version: 0.0
 os: linux
-file_exists_behavior: OVERWRITE
 
+# Copy your bundle’s files to the web root. If your repo has only index.html,
+# this is fine; if it has more assets, they’ll be copied too.
 files:
-  - source: /index.html
-    destination: /var/www/html/
-  - source: /deploy-info.json
-    destination: /var/www/html/
+  - source: /
+    destination: /var/www/html
+    overwrite: true
 
 hooks:
   ApplicationStop:
     - location: scripts/stop_server
-      timeout: 300
+      timeout: 60
       runas: root
-
   BeforeInstall:
     - location: scripts/install_dependencies
       timeout: 300
       runas: root
-
   ApplicationStart:
     - location: scripts/start_server
       timeout: 300
