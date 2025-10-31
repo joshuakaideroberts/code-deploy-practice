@@ -93,7 +93,7 @@ jobs:
           djson=$(aws deploy create-deployment \
             --application-name "${CODEDEPLOY_APPLICATION}" \
             --deployment-group-name "${CODEDEPLOY_DEPLOYMENT_GROUP}" \
-            --revision "revisionType=S3Location,s3Location={bucket=${S3_BUCKET},key=${ZIP_NAME},bundleType=zip}" \
+            --revision "revisionType=S3,s3Location={bucket=${S3_BUCKET},key=${ZIP_NAME},bundleType=zip}" \
             --region "${AWS_REGION}" \
             --output json)
           echo "$djson"
