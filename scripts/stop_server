@@ -1,21 +1,19 @@
 #!/bin/bash
-# Be tolerant during stop; don't fail the whole deployment for harmless cases.
+# Tolerant stop: never fail if not running / not installed
 set -u
-
 log(){ echo "[stop_server] $*"; }
 
-stopped_any=0
+stopped=0
 for svc in httpd apache2; do
   if systemctl list-unit-files | grep -q "^${svc}\.service"; then
     log "Stopping ${svc} if running..."
     sudo systemctl stop "$svc" || true
-    stopped_any=1
+    stopped=1
   fi
 done
 
-if [ "$stopped_any" -eq 0 ]; then
+if [ "$stopped" -eq 0 ]; then
   log "No httpd/apache2 service found; nothing to stop."
 fi
 
-# Always succeed
 exit 0
