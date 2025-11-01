@@ -1,17 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
-
-source /etc/os-release || true
 if command -v dnf >/dev/null 2>&1; then
   sudo dnf install -y httpd
-  sudo systemctl enable httpd
-elif command -v yum >/dev/null 2>&1; then
-  sudo yum install -y httpd
-  sudo systemctl enable httpd
 else
-  echo "Unsupported package manager. Install Apache/httpd manually." >&2
-  exit 1
+  sudo yum install -y httpd
 fi
-
-sudo mkdir -p /var/www/html
-sudo chown ec2-user:ec2-user /var/www/html || true
